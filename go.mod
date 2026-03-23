@@ -1,3 +1,3 @@
-module github.com/miku/claude-profile-switch
+module github.com/miku/claude-switch
 
 go 1.26.1

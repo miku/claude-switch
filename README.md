@@ -9,3 +9,7 @@ Switch between claude code backends, e.g.
 This program just keeps options in a config file and lets the user choose
 between one interactively.
 
+```
+$ go install -v github.com/miku/claude-switch@latest
+```
+
