@@ -13,20 +13,6 @@ import (
 )
 
 const (
-	exampleConfig = `{
-  "default": {
-    "model": "opus",
-    "effortLevel": "high"
-  },
-  "z": {
-    "env": {
-      "ANTHROPIC_AUTH_TOKEN": "your_zai_api_key",
-      "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
-      "API_TIMEOUT_MS": "3000000"
-    }
-  }
-}
-`
 	progName       = `claude-switch`
 	configFilename = `claude-switch.json`
 )
@@ -126,19 +112,53 @@ func applyProfile(name string, profile map[string]interface{}) error {
 	return nil
 }
 
+func buildInitialConfig() ([]byte, error) {
+	profiles := Profiles{
+		"z": {
+			"env": map[string]interface{}{
+				"ANTHROPIC_AUTH_TOKEN": "your_zai_api_key",
+				"ANTHROPIC_BASE_URL":  "https://api.z.ai/api/anthropic",
+				"API_TIMEOUT_MS":      "3000000",
+			},
+		},
+	}
+
+	current, err := currentSettings()
+	if err == nil && current != nil {
+		profiles["default"] = current
+	} else {
+		profiles["default"] = map[string]interface{}{
+			"model":       "opus",
+			"effortLevel": "high",
+		}
+	}
+
+	data, err := json.MarshalIndent(profiles, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
 func initConfig() {
 	cp := configPath()
 	if err := os.MkdirAll(configDir(), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "error: cannot create config directory: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(cp, []byte(exampleConfig), 0644); err != nil {
+	configData, err := buildInitialConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: cannot build config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(cp, configData, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "error: cannot write config: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Created example config at:\n\n")
+	fmt.Printf("Created config at:\n\n")
 	fmt.Printf("    \x1b[32m%s\x1b[0m\n\n", cp)
-	fmt.Printf("Edit the file to add your API profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n", progName)
+	fmt.Printf("Your current ~/.claude/settings.json has been saved as the \"default\" profile.\n")
+	fmt.Printf("Edit the file to add more profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n", progName)
 }
 
 func profileSummary(profile map[string]interface{}) string {
