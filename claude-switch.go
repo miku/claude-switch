@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 )
 
 const (
@@ -224,7 +223,12 @@ func profileSummary(profile map[string]any) string {
 func listProfiles(profiles Profiles) {
 	current, similar := detectCurrentProfile(profiles)
 	names := profileNames(profiles)
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
+	maxName := 0
+	for _, name := range names {
+		if len(name) > maxName {
+			maxName = len(name)
+		}
+	}
 	for _, name := range names {
 		marker := "  "
 		if name == current {
@@ -233,9 +237,8 @@ func listProfiles(profiles Profiles) {
 			marker = "~ "
 		}
 		summary := profileSummary(profiles[name])
-		fmt.Fprintf(w, "%s%s\t %s\n", marker, name, summary)
+		fmt.Fprintf(os.Stdout, "%s%-*s %s\n", marker, maxName, name, summary)
 	}
-	w.Flush()
 
 	if current == "" && similar != "" {
 		fmt.Printf("\n\x1b[33m~\x1b[0m = closest match - current settings differ from all profiles. Some providers modify settings (e.g., model names).\n")
@@ -248,16 +251,21 @@ func interactiveSelect(profiles Profiles) {
 
 	fmt.Println("Available profiles:")
 	fmt.Println()
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
+	maxName := 0
+	for _, name := range names {
+		if len(name) > maxName {
+			maxName = len(name)
+		}
+	}
+	idxWidth := len(fmt.Sprintf("%d", len(names)))
 	for i, name := range names {
 		marker := "  "
 		if name == current {
 			marker = "* "
 		}
 		summary := profileSummary(profiles[name])
-		fmt.Fprintf(w, "%s[%d] %s\t %s\n", marker, i+1, name, summary)
+		fmt.Fprintf(os.Stdout, "%s[%*d] %-*s %s\n", marker, idxWidth, i+1, maxName, name, summary)
 	}
-	w.Flush()
 	fmt.Println()
 	fmt.Printf("Select profile [1-%d] or name: ", len(names))
 
