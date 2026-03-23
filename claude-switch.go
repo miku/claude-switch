@@ -136,14 +136,9 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "error: cannot write config: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Created example config at:")
-	fmt.Println()
-	fmt.Printf("    %s\n", cp)
-	fmt.Println()
-	fmt.Printf("Edit the file to add your API profiles, then run %s again.\n", progName)
-	fmt.Println()
-	fmt.Println("Each top-level key is a profile name. Its value becomes ~/.claude/settings.json")
-	fmt.Println("when that profile is selected.")
+	fmt.Printf("Created example config at:\n\n")
+	fmt.Printf("    \x1b[32m%s\x1b[0m\n\n", cp)
+	fmt.Printf("Edit the file to add your API profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n", progName)
 }
 
 func profileSummary(profile map[string]interface{}) string {
@@ -242,7 +237,7 @@ func main() {
 	listFlag := flag.Bool("l", false, "list available profiles")
 	currentFlag := flag.Bool("c", false, "show current active profile")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: ccswitch [flags] [profile]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [profile]\n\n", progName)
 		fmt.Fprintf(os.Stderr, "Switch between Claude Code settings.json profiles.\n\n")
 		fmt.Fprintf(os.Stderr, "With no arguments, shows an interactive selection menu.\n")
 		fmt.Fprintf(os.Stderr, "With a profile name, switches to that profile directly.\n\n")
