@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 )
 
 const (
@@ -189,14 +190,16 @@ func profileSummary(profile map[string]any) string {
 func listProfiles(profiles Profiles) {
 	current := detectCurrentProfile(profiles)
 	names := profileNames(profiles)
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 	for _, name := range names {
 		marker := "  "
 		if name == current {
 			marker = "* "
 		}
 		summary := profileSummary(profiles[name])
-		fmt.Printf("%s%-12s %s\n", marker, name, summary)
+		fmt.Fprintf(w, "%s%s\t %s\n", marker, name, summary)
 	}
+	w.Flush()
 }
 
 func interactiveSelect(profiles Profiles) {
@@ -205,14 +208,16 @@ func interactiveSelect(profiles Profiles) {
 
 	fmt.Println("Available profiles:")
 	fmt.Println()
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 	for i, name := range names {
 		marker := "  "
 		if name == current {
 			marker = "* "
 		}
 		summary := profileSummary(profiles[name])
-		fmt.Printf("%s[%d] %-12s %s\n", marker, i+1, name, summary)
+		fmt.Fprintf(w, "%s[%d] %s\t %s\n", marker, i+1, name, summary)
 	}
+	w.Flush()
 	fmt.Println()
 	fmt.Printf("Select profile [1-%d] or name: ", len(names))
 
