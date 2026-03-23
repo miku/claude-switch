@@ -15,12 +15,12 @@ $ go install -v github.com/miku/claude-switch@latest
 
 On first run, an example configuration file is created.
 
-![](static/claude-switch-init-0.1.0.png)
+![](static/claude-switch-init-0.1.1.png)
 
 You can add additional providers and models into that file, then use
 claude-switch to list or select between them.
 
-![](static/claude-switch-list-0.1.0.png)
+![](static/claude-switch-list-0.1.1.png)
 
 To select interactively, just run:
 
