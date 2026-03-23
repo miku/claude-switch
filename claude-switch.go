@@ -42,7 +42,7 @@ func settingsPath() string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-type Profiles map[string]map[string]interface{}
+type Profiles map[string]map[string]any
 
 func loadConfig() (Profiles, error) {
 	data, err := os.ReadFile(configPath())
@@ -65,7 +65,7 @@ func profileNames(profiles Profiles) []string {
 	return names
 }
 
-func currentSettings() (map[string]interface{}, error) {
+func currentSettings() (map[string]any, error) {
 	data, err := os.ReadFile(settingsPath())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -73,7 +73,7 @@ func currentSettings() (map[string]interface{}, error) {
 		}
 		return nil, err
 	}
-	var settings map[string]interface{}
+	var settings map[string]any
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func detectCurrentProfile(profiles Profiles) string {
 	return ""
 }
 
-func applyProfile(name string, profile map[string]interface{}) error {
+func applyProfile(name string, profile map[string]any) error {
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling settings: %w", err)
@@ -115,7 +115,7 @@ func applyProfile(name string, profile map[string]interface{}) error {
 func buildInitialConfig() ([]byte, error) {
 	profiles := Profiles{
 		"z": {
-			"env": map[string]interface{}{
+			"env": map[string]any{
 				"ANTHROPIC_AUTH_TOKEN": "your_zai_api_key",
 				"ANTHROPIC_BASE_URL":  "https://api.z.ai/api/anthropic",
 				"API_TIMEOUT_MS":      "3000000",
@@ -127,7 +127,7 @@ func buildInitialConfig() ([]byte, error) {
 	if err == nil && current != nil {
 		profiles["default"] = current
 	} else {
-		profiles["default"] = map[string]interface{}{
+		profiles["default"] = map[string]any{
 			"model":       "opus",
 			"effortLevel": "high",
 		}
@@ -161,13 +161,13 @@ func initConfig() {
 	fmt.Printf("Edit the file to add more profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n", progName)
 }
 
-func profileSummary(profile map[string]interface{}) string {
+func profileSummary(profile map[string]any) string {
 	parts := []string{}
 	for k, v := range profile {
 		switch val := v.(type) {
 		case string:
 			parts = append(parts, fmt.Sprintf("%s=%s", k, val))
-		case map[string]interface{}:
+		case map[string]any:
 			if k == "env" {
 				keys := make([]string, 0, len(val))
 				for ek := range val {
