@@ -27,8 +27,8 @@ const (
   }
 }
 `
-	progName       = `claude-profile-switch`
-	configFilename = `cps.json`
+	progName       = `claude-switch`
+	configFilename = `claude-switch.json`
 )
 
 func configDir() string {
@@ -136,8 +136,11 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "error: cannot write config: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Created example config at: %s\n", cp)
-	fmt.Println("Edit the file to add your API profiles, then run ccswitch again.")
+	fmt.Printf("Created example config at:")
+	fmt.Println()
+	fmt.Printf("    %s\n", cp)
+	fmt.Println()
+	fmt.Printf("Edit the file to add your API profiles, then run %s again.\n", progName)
 	fmt.Println()
 	fmt.Println("Each top-level key is a profile name. Its value becomes ~/.claude/settings.json")
 	fmt.Println("when that profile is selected.")

@@ -1,8 +1,12 @@
 SHELL := /bin/bash
+TARGETS := claude-switch
 
-cps: cps.go
-	go build -o cps cps.go
+.PHONY: all
+all: $(TARGETS)
+
+%: %.go
+	go build -o $@ $^
 
 .PHONY: clean
 clean:
-	rm -f cps
+	rm -f $(TARGETS)

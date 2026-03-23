@@ -1,8 +1,11 @@
-# ccswitch
+# Claude Switch
 
-Switch between claude code API backends, e.g.
+Switch between claude code backends, e.g.
 
-* Anthropic
+* Anthropic (default)
 * Compatible API, e.g. via ollama, llama-cpp, lemonade, ...
 * Other providers, e.g. z.ai, ...
+
+This program just keeps options in a config file and lets the user choose
+between one interactively.
 
