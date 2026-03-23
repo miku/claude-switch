@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -58,11 +59,8 @@ func loadConfig() (Profiles, error) {
 }
 
 func profileNames(profiles Profiles) []string {
-	names := make([]string, 0, len(profiles))
-	for name := range profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Collect(maps.Keys(profiles))
+	slices.Sort(names)
 	return names
 }
 
@@ -81,19 +79,58 @@ func currentSettings() (map[string]any, error) {
 	return settings, nil
 }
 
-func detectCurrentProfile(profiles Profiles) string {
+func similarityScore(a, b map[string]any) float64 {
+	aJSON, _ := json.Marshal(a)
+	bJSON, _ := json.Marshal(b)
+	aStr, bStr := string(aJSON), string(bJSON)
+
+	if aStr == bStr {
+		return 1.0
+	}
+
+	// Simple normalized similarity based on common prefix/suffix and length ratio
+	la, lb := len(aStr), len(bStr)
+	if la == 0 && lb == 0 {
+		return 1.0
+	}
+	if la == 0 || lb == 0 {
+		return 0.0
+	}
+
+	// Count matching runes
+	maxLen := max(la, lb)
+	matches := 0
+	for i := 0; i < min(la, lb); i++ {
+		if aStr[i] == bStr[i] {
+			matches++
+		}
+	}
+	return float64(matches) / float64(maxLen)
+}
+
+func detectCurrentProfile(profiles Profiles) (string, string) {
 	current, err := currentSettings()
 	if err != nil || current == nil {
-		return ""
+		return "", ""
 	}
 	currentJSON, _ := json.Marshal(current)
 	for name, profile := range profiles {
 		profileJSON, _ := json.Marshal(profile)
 		if string(currentJSON) == string(profileJSON) {
-			return name
+			return name, ""
 		}
 	}
-	return ""
+
+	// No exact match - find closest
+	var closestName string
+	var closestScore float64
+	for name, profile := range profiles {
+		if score := similarityScore(current, profile); score > closestScore {
+			closestScore = score
+			closestName = name
+		}
+	}
+	return "", closestName
 }
 
 func applyProfile(name string, profile map[string]any) error {
@@ -118,8 +155,8 @@ func buildInitialConfig() ([]byte, error) {
 		"z": {
 			"env": map[string]any{
 				"ANTHROPIC_AUTH_TOKEN": "your_zai_api_key",
-				"ANTHROPIC_BASE_URL":  "https://api.z.ai/api/anthropic",
-				"API_TIMEOUT_MS":      "3000000",
+				"ANTHROPIC_BASE_URL":   "https://api.z.ai/api/anthropic",
+				"API_TIMEOUT_MS":       "3000000",
 			},
 		},
 	}
@@ -170,11 +207,8 @@ func profileSummary(profile map[string]any) string {
 			parts = append(parts, fmt.Sprintf("%s=%s", k, val))
 		case map[string]any:
 			if k == "env" {
-				keys := make([]string, 0, len(val))
-				for ek := range val {
-					keys = append(keys, ek)
-				}
-				sort.Strings(keys)
+				keys := slices.Collect(maps.Keys(val))
+				slices.Sort(keys)
 				parts = append(parts, fmt.Sprintf("env=[%s]", strings.Join(keys, ",")))
 			} else {
 				parts = append(parts, fmt.Sprintf("%s={...}", k))
@@ -183,27 +217,33 @@ func profileSummary(profile map[string]any) string {
 			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
 		}
 	}
-	sort.Strings(parts)
+	slices.Sort(parts)
 	return strings.Join(parts, " ")
 }
 
 func listProfiles(profiles Profiles) {
-	current := detectCurrentProfile(profiles)
+	current, similar := detectCurrentProfile(profiles)
 	names := profileNames(profiles)
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 	for _, name := range names {
 		marker := "  "
 		if name == current {
 			marker = "* "
+		} else if name == similar && current == "" {
+			marker = "~ "
 		}
 		summary := profileSummary(profiles[name])
 		fmt.Fprintf(w, "%s%s\t %s\n", marker, name, summary)
 	}
 	w.Flush()
+
+	if current == "" && similar != "" {
+		fmt.Printf("\n\x1b[33m~\x1b[0m = closest match - current settings differ from all profiles. Some providers modify settings (e.g., model names).\n")
+	}
 }
 
 func interactiveSelect(profiles Profiles) {
-	current := detectCurrentProfile(profiles)
+	current, _ := detectCurrentProfile(profiles)
 	names := profileNames(profiles)
 
 	fmt.Println("Available profiles:")
@@ -287,8 +327,11 @@ func main() {
 	case *listFlag:
 		listProfiles(profiles)
 	case *currentFlag:
-		if name := detectCurrentProfile(profiles); name != "" {
+		if name, similar := detectCurrentProfile(profiles); name != "" {
 			fmt.Println(name)
+		} else if similar != "" {
+			fmt.Printf("(no exact match, closest: %s)\n", similar)
+			fmt.Fprintln(os.Stderr, "\nNote: Some providers modify settings (e.g., model names), causing drift from saved profiles.")
 		} else {
 			fmt.Println("(no matching profile)")
 		}
