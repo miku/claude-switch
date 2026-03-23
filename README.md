@@ -31,3 +31,4 @@ $ claude-switch
 ## Inspiration
 
 * [clother](https://github.com/jolehuit/clother), but I wanted something simpler to start with
+* [claude-code-switch](https://github.com/foreveryh/claude-code-switch)
