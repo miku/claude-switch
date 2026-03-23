@@ -10,8 +10,13 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$PROG_NAME"
 CONFIG_FILE="$CONFIG_DIR/claude-switch.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 
-# Create config directory if it doesn't exist
-mkdir -p "$CONFIG_DIR"
+# Verify dependencies
+for cmd in jq bc; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "error: $PROG_NAME requires '$cmd' but it is not installed" >&2
+        exit 1
+    fi
+done
 
 # Function to print usage
 usage() {
@@ -33,12 +38,12 @@ Target: $SETTINGS_FILE
 EOF
 }
 
-# Function to get current settings as JSON
+# Function to get current settings as compact JSON
 get_current_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
-        cat "$SETTINGS_FILE"
+        jq -c . "$SETTINGS_FILE"
     else
-        echo "{}"
+        echo ""
     fi
 }
 
@@ -46,88 +51,44 @@ get_current_settings() {
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
         cat "$CONFIG_FILE"
+        return 0
+    fi
+    return 1
+}
+
+# Function to initialize config (mirrors Go's initConfig)
+init_config() {
+    mkdir -p "$CONFIG_DIR"
+
+    local default_profile
+    if [[ -f "$SETTINGS_FILE" ]]; then
+        default_profile=$(jq -c . "$SETTINGS_FILE")
     else
-        # Create initial config
-        local initial_config
-        initial_config=$(cat <<EOF
-{
-  "default": {
-    "model": "opus",
-    "effortLevel": "high"
-  },
-  "z": {
-    "env": {
-      "ANTHROPIC_AUTH_TOKEN": "your_zai_api_key",
-      "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
-      "API_TIMEOUT_MS": "3000000"
-    }
-  }
-}
-EOF
-)
-        echo "$initial_config" > "$CONFIG_FILE"
-        echo "$initial_config"
-    fi
-}
-
-# Function to detect current profile
-detect_current_profile() {
-    local profiles_json="$1"
-    local current_settings
-    current_settings=$(get_current_settings)
-
-    # Try exact match first
-    local matched_profile
-    matched_profile=$(jq -r --argjson current "$current_settings" '
-        to_entries[] |
-        select(.value | tostring == $current | tostring) |
-        .key
-    ' <<< "$profiles_json" 2>/dev/null)
-
-    if [[ -n "$matched_profile" ]]; then
-        echo "$matched_profile"
-        return
+        default_profile='{"model":"opus","effortLevel":"high"}'
     fi
 
-    # No exact match - find closest using string similarity
-    local best_score=0
-    local best_profile=""
+    local z_profile='{"env":{"ANTHROPIC_AUTH_TOKEN":"your_zai_api_key","ANTHROPIC_BASE_URL":"https://api.z.ai/api/anthropic","API_TIMEOUT_MS":"3000000"}}'
 
-    # Process each profile to calculate similarity
-    while IFS= read -r profile_name; do
-        if [[ -z "$profile_name" ]]; then continue; fi
+    # Build config with default and z profiles, then pretty-print
+    jq -n --argjson default "$default_profile" --argjson z "$z_profile" \
+        '{"default": $default, "z": $z}' > "$CONFIG_FILE"
 
-        local profile_json
-        profile_json=$(jq -r --arg prof "$profile_name" '.[$prof]' <<< "$profiles_json")
-
-        # Calculate similarity score
-        local current_str
-        current_str=$(echo "$current_settings" | jq -c .)
-        local profile_str
-        profile_str=$(echo "$profile_json" | jq -c .)
-
-        local score
-        score=$(calculate_similarity "$current_str" "$profile_str")
-
-        if (( $(echo "$score > $best_score" | bc -l) )); then
-            best_score=$score
-            best_profile="$profile_name"
-        fi
-    done < <(jq -r 'keys[]' <<< "$profiles_json")
-
-    if (( $(echo "$best_score > 0.5" | bc -l) )); then
-        echo "$best_profile"
-    else
-        echo ""
-    fi
+    printf 'Created config at:\n\n'
+    printf '    \033[32m%s\033[0m\n\n' "$CONFIG_FILE"
+    printf 'Your current ~/.claude/settings.json has been saved as the "default" profile.\n'
+    printf 'Edit the file to add more profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n' "$PROG_NAME"
 }
 
-# Function to calculate string similarity (simple implementation)
+# Function to calculate string similarity
 calculate_similarity() {
     local str1="$1"
     local str2="$2"
 
-    # Handle empty strings
+    if [[ "$str1" == "$str2" ]]; then
+        echo "1.0"
+        return
+    fi
+
     if [[ -z "$str1" && -z "$str2" ]]; then
         echo "1.0"
         return
@@ -138,7 +99,6 @@ calculate_similarity() {
         return
     fi
 
-    # Simple approach: count matching characters from start
     local len1=${#str1}
     local len2=${#str2}
     local max_len=$((len1 > len2 ? len1 : len2))
@@ -160,13 +120,71 @@ calculate_similarity() {
     echo "scale=10; $matches / $max_len" | bc -l
 }
 
+# Function to detect current profile
+# Returns two lines: exact_match and closest_match (either may be empty)
+detect_current_profile() {
+    local profiles_json="$1"
+    local current_settings
+    current_settings=$(get_current_settings)
+
+    if [[ -z "$current_settings" ]]; then
+        echo ""
+        echo ""
+        return
+    fi
+
+    # Try exact match first (compare compact JSON)
+    local profile_name
+    while IFS= read -r profile_name; do
+        [[ -z "$profile_name" ]] && continue
+        local profile_json
+        profile_json=$(jq -c --arg prof "$profile_name" '.[$prof]' <<< "$profiles_json")
+        if [[ "$current_settings" == "$profile_json" ]]; then
+            echo "$profile_name"
+            echo ""
+            return
+        fi
+    done < <(jq -r 'keys[]' <<< "$profiles_json")
+
+    # No exact match - find closest using string similarity
+    local best_score=0
+    local best_profile=""
+
+    while IFS= read -r profile_name; do
+        [[ -z "$profile_name" ]] && continue
+
+        local profile_json
+        profile_json=$(jq -c --arg prof "$profile_name" '.[$prof]' <<< "$profiles_json")
+
+        local score
+        score=$(calculate_similarity "$current_settings" "$profile_json")
+
+        if (( $(echo "$score > $best_score" | bc -l) )); then
+            best_score=$score
+            best_profile="$profile_name"
+        fi
+    done < <(jq -r 'keys[]' <<< "$profiles_json")
+
+    echo ""
+    echo "$best_profile"
+}
+
+# Read detect_current_profile results into two variables
+read_profile_detection() {
+    local profiles_json="$1"
+    local result
+    result=$(detect_current_profile "$profiles_json")
+    DETECTED_EXACT=$(sed -n '1p' <<< "$result")
+    DETECTED_SIMILAR=$(sed -n '2p' <<< "$result")
+}
+
 # Function to apply profile
 apply_profile() {
     local profile_name="$1"
     local profiles_json="$2"
 
     local profile_data
-    profile_data=$(jq -r --arg prof "$profile_name" '.[$prof]' <<< "$profiles_json")
+    profile_data=$(jq --arg prof "$profile_name" '.[$prof]' <<< "$profiles_json")
 
     if [[ -z "$profile_data" || "$profile_data" == "null" ]]; then
         echo "error: unknown profile '$profile_name'" >&2
@@ -176,45 +194,8 @@ apply_profile() {
     # Create settings directory if needed
     mkdir -p "$(dirname "$SETTINGS_FILE")"
 
-    # Apply the profile
-    echo "$profile_data" > "$SETTINGS_FILE"
-    echo "Switched to profile: $profile_name"
-}
-
-# Function to list profiles
-list_profiles() {
-    local profiles_json="$1"
-
-    local current_profile
-    current_profile=$(detect_current_profile "$profiles_json")
-
-    # Get all profile names
-    local profile_names
-    profile_names=$(jq -r 'keys[]' <<< "$profiles_json")
-
-    # Find max name length for formatting
-    local max_name_len=0
-    while IFS= read -r name; do
-        if [[ -z "$name" ]]; then continue; fi
-        local name_len=${#name}
-        if [[ $name_len -gt $max_name_len ]]; then
-            max_name_len=$name_len
-        fi
-    done <<< "$profile_names"
-
-    # Print each profile
-    while IFS= read -r name; do
-        if [[ -z "$name" ]]; then continue; fi
-
-        local marker="  "
-        if [[ "$name" == "$current_profile" ]]; then
-            marker="* "
-        fi
-
-        local summary
-        summary=$(profile_summary "$name" "$profiles_json")
-        printf "%s%-${max_name_len}s %s\n" "$marker" "$name" "$summary"
-    done <<< "$profile_names"
+    # Pretty-print with 2-space indent and trailing newline (matches Go's MarshalIndent)
+    jq --indent 2 '.' <<< "$profile_data" > "$SETTINGS_FILE"
 }
 
 # Function to get profile summary
@@ -227,86 +208,116 @@ profile_summary() {
 
     local parts=()
 
-    # Iterate through profile keys
     while IFS= read -r key; do
-        if [[ -z "$key" ]]; then continue; fi
+        [[ -z "$key" ]] && continue
 
-        local value
-        value=$(jq -r --arg k "$key" '.[$k]' <<< "$profile_data")
+        local value_type
+        value_type=$(jq -r --arg k "$key" '.[$k] | type' <<< "$profile_data")
 
-        case "$value" in
-            null)
-                parts+=("$key=null")
-                ;;
-            "true"|"false")
+        case "$value_type" in
+            string)
+                local value
+                value=$(jq -r --arg k "$key" '.[$k]' <<< "$profile_data")
                 parts+=("$key=$value")
                 ;;
-            \"*)
-                parts+=("$key=$value")
+            object)
+                if [[ "$key" == "env" ]]; then
+                    local env_keys
+                    env_keys=$(jq -r --arg k "$key" '.[$k] | keys | join(",")' <<< "$profile_data")
+                    parts+=("env=[$env_keys]")
+                else
+                    parts+=("$key={...}")
+                fi
                 ;;
             *)
-                # Check if it's a map/object
-                if echo "$value" | grep -q '{'; then
-                    local env_keys
-                    env_keys=$(jq -r --arg k "$key" '.[$k] | keys[]' <<< "$profile_data" 2>/dev/null || echo "")
-                    if [[ -n "$env_keys" ]]; then
-                        local env_list
-                        env_list=$(echo "$env_keys" | tr '\n' ',' | sed 's/,$//')
-                        parts+=("$key=[$env_list]")
-                    else
-                        parts+=("$key={...}")
-                    fi
-                else
-                    parts+=("$key=$value")
-                fi
+                local value
+                value=$(jq -r --arg k "$key" '.[$k]' <<< "$profile_data")
+                parts+=("$key=$value")
                 ;;
         esac
     done < <(jq -r 'keys[]' <<< "$profile_data")
 
-    # Sort parts and join
-    IFS=$'\n' sorted_parts=($(sort <<<"${parts[*]}"))
-    unset IFS
-    echo "${sorted_parts[*]}" | tr ' ' ' '
+    mapfile -t sorted_parts < <(printf '%s\n' "${parts[@]}" | sort)
+    echo "${sorted_parts[*]}"
 }
 
-# Function to interactive select
+# Function to list profiles
+list_profiles() {
+    local profiles_json="$1"
+
+    read_profile_detection "$profiles_json"
+    local current_profile="$DETECTED_EXACT"
+    local similar_profile="$DETECTED_SIMILAR"
+
+    local profile_names
+    mapfile -t profile_names < <(jq -r 'keys[]' <<< "$profiles_json")
+
+    # Find max name length for formatting
+    local max_name_len=0
+    for name in "${profile_names[@]}"; do
+        if [[ ${#name} -gt $max_name_len ]]; then
+            max_name_len=${#name}
+        fi
+    done
+
+    # Print each profile
+    for name in "${profile_names[@]}"; do
+        local marker="  "
+        if [[ "$name" == "$current_profile" ]]; then
+            marker="* "
+        elif [[ -z "$current_profile" && "$name" == "$similar_profile" ]]; then
+            marker="~ "
+        fi
+
+        local summary
+        summary=$(profile_summary "$name" "$profiles_json")
+        printf "%s%-${max_name_len}s %s\n" "$marker" "$name" "$summary"
+    done
+
+    if [[ -z "$current_profile" && -n "$similar_profile" ]]; then
+        printf '\n\033[33m~\033[0m = closest match - current settings differ from all profiles. Some providers modify settings (e.g., model names).\n'
+    fi
+}
+
+# Function for interactive selection
 interactive_select() {
     local profiles_json="$1"
+
+    read_profile_detection "$profiles_json"
+    local current_profile="$DETECTED_EXACT"
 
     echo "Available profiles:"
     echo
 
     local profile_names
-    profile_names=$(jq -r 'keys[]' <<< "$profiles_json")
+    mapfile -t profile_names < <(jq -r 'keys[]' <<< "$profiles_json")
+    local num_profiles=${#profile_names[@]}
 
     # Find max name length for formatting
     local max_name_len=0
-    while IFS= read -r name; do
-        if [[ -z "$name" ]]; then continue; fi
-        local name_len=${#name}
-        if [[ $name_len -gt $max_name_len ]]; then
-            max_name_len=$name_len
+    for name in "${profile_names[@]}"; do
+        if [[ ${#name} -gt $max_name_len ]]; then
+            max_name_len=${#name}
         fi
-    done <<< "$profile_names"
+    done
+
+    local idx_width=${#num_profiles}
 
     # Print each profile with index
-    local i=1
-    while IFS= read -r name; do
-        if [[ -z "$name" ]]; then continue; fi
-
+    for ((i=0; i<num_profiles; i++)); do
+        local name="${profile_names[$i]}"
         local marker="  "
-        if [[ "$name" == "$(detect_current_profile "$profiles_json")" ]]; then
+        if [[ "$name" == "$current_profile" ]]; then
             marker="* "
         fi
 
         local summary
         summary=$(profile_summary "$name" "$profiles_json")
-        printf "%s[%*d] %-*s %s\n" "$marker" ${#profile_names} "$i" "$max_name_len" "$name" "$summary"
-        ((i++))
-    done <<< "$profile_names"
+        printf "%s[%*d] %-*s %s\n" "$marker" "$idx_width" "$((i+1))" "$max_name_len" "$name" "$summary"
+    done
 
     echo
-    echo -n "Select profile [1-$((i-1))] or name: "
+    printf "Select profile [1-%d] or name: " "$num_profiles"
 
     local input
     read -r input
@@ -317,12 +328,10 @@ interactive_select() {
 
     # Try numeric selection first
     if [[ "$input" =~ ^[0-9]+$ ]]; then
-        local num_profiles
-        num_profiles=$(jq -r 'length' <<< "$profiles_json")
         if [[ $input -ge 1 && $input -le $num_profiles ]]; then
-            local profile_name
-            profile_name=$(jq -r --argjson idx "$((input - 1))" 'keys[$idx]' <<< "$profiles_json")
-            apply_profile "$profile_name" "$profiles_json"
+            local selected_name="${profile_names[$((input-1))]}"
+            apply_profile "$selected_name" "$profiles_json"
+            echo "Switched to profile: $selected_name"
             return
         else
             echo "error: invalid selection $input" >&2
@@ -333,10 +342,11 @@ interactive_select() {
     # Try named selection
     if jq -e --arg prof "$input" 'has($prof)' <<< "$profiles_json" >/dev/null 2>&1; then
         apply_profile "$input" "$profiles_json"
+        echo "Switched to profile: $input"
         return
     fi
 
-    echo "error: unknown profile '$input'" >&2
+    printf 'error: unknown profile %q\n' "$input" >&2
     exit 1
 }
 
@@ -373,35 +383,34 @@ main() {
         esac
     done
 
-    # Load config
+    # Load config (or initialize if missing)
     local profiles_json
-    profiles_json=$(load_config)
+    if ! profiles_json=$(load_config); then
+        init_config
+        return
+    fi
 
     # Execute based on flags and arguments
     if [[ "$list_flag" == true ]]; then
         list_profiles "$profiles_json"
     elif [[ "$current_flag" == true ]]; then
-        local current_profile
-        current_profile=$(detect_current_profile "$profiles_json")
-        if [[ -n "$current_profile" ]]; then
-            echo "$current_profile"
+        read_profile_detection "$profiles_json"
+        if [[ -n "$DETECTED_EXACT" ]]; then
+            echo "$DETECTED_EXACT"
+        elif [[ -n "$DETECTED_SIMILAR" ]]; then
+            printf '(no exact match, closest: %s)\n' "$DETECTED_SIMILAR"
+            echo "" >&2
+            echo "Note: Some providers modify settings (e.g., model names), causing drift from saved profiles." >&2
         else
-            local similar_profile
-            similar_profile=$(detect_current_profile "$profiles_json")
-            if [[ -n "$similar_profile" ]]; then
-                echo "(no exact match, closest: $similar_profile)"
-                echo ""
-                echo "Note: Some providers modify settings (e.g., model names), causing drift from saved profiles."
-            else
-                echo "(no matching profile)"
-            fi
+            echo "(no matching profile)"
         fi
     elif [[ -n "$profile_arg" ]]; then
         if jq -e --arg prof "$profile_arg" 'has($prof)' <<< "$profiles_json" >/dev/null 2>&1; then
             apply_profile "$profile_arg" "$profiles_json"
+            echo "Switched to profile: $profile_arg"
         else
-            echo "error: unknown profile '$profile_arg'" >&2
-            echo "Available profiles: $(jq -r 'keys[]' <<< "$profiles_json" | tr '\n' ', ' | sed 's/, $//')"
+            printf 'error: unknown profile %q\n' "$profile_arg" >&2
+            echo "Available profiles: $(jq -r 'keys | join(", ")' <<< "$profiles_json")" >&2
             exit 1
         fi
     else
