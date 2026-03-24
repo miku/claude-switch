@@ -7,7 +7,7 @@ Switch between claude code backends, e.g.
 * Other services, e.g. z.ai, ...
 
 This program just keeps options in a config file and lets the user choose
-between them interactively.
+between them interactively. This is a global option, not a per project option.
 
 ```
 $ go install -v github.com/miku/claude-switch@latest
