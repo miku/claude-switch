@@ -16,7 +16,8 @@ $ go install -v github.com/miku/claude-switch@latest
 Alternatively, a standalone shell script (requires only `jq`) is available:
 
 ```
-$ curl -fsSL https://raw.githubusercontent.com/miku/claude-switch/main/claude-switch.sh -o ~/.local/bin/claude-switch && chmod +x ~/.local/bin/claude-switch
+$ curl -fsSL https://tinyurl.com/claude-switch -o ~/.local/bin/claude-switch \
+     && chmod +x ~/.local/bin/claude-switch
 ```
 
 On first run, an example configuration file is created.
