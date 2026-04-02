@@ -13,6 +13,12 @@ between them interactively. This is a global option, not a per project option.
 $ go install -v github.com/miku/claude-switch@latest
 ```
 
+Alternatively, a standalone shell script (requires only `jq`) is available:
+
+```
+$ curl -fsSL https://raw.githubusercontent.com/miku/claude-switch/main/claude-switch.sh -o ~/.local/bin/claude-switch && chmod +x ~/.local/bin/claude-switch
+```
+
 On first run, an example configuration file is created.
 
 ![](static/claude-switch-init-0.1.1.png)

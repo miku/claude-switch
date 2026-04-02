@@ -9,16 +9,14 @@ set -euo pipefail
 
 PROG_NAME="claude-switch"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$PROG_NAME"
-CONFIG_FILE="$CONFIG_DIR/claude-switch.json"
-SETTINGS_FILE="$HOME/.claude/settings.json"
+CONFIG_FILE="${CLAUDE_SWITCH_CONFIG:-$CONFIG_DIR/claude-switch.json}"
+SETTINGS_FILE="${CLAUDE_SWITCH_SETTINGS:-$HOME/.claude/settings.json}"
 
 # Verify dependencies
-for cmd in jq bc; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "error: $PROG_NAME requires '$cmd' but it is not installed" >&2
-        exit 1
-    fi
-done
+if ! command -v jq &>/dev/null; then
+    echo "error: $PROG_NAME requires 'jq' but it is not installed" >&2
+    exit 1
+fi
 
 # Function to print usage
 usage() {
@@ -60,7 +58,7 @@ load_config() {
 
 # Function to initialize config (mirrors Go's initConfig)
 init_config() {
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$(dirname "$CONFIG_FILE")"
 
     local default_profile
     if [[ -f "$SETTINGS_FILE" ]]; then
@@ -81,23 +79,23 @@ init_config() {
     printf 'Edit the file to add more profiles, then run %s again. Each top-level key is a profile name.\nIts value becomes ~/.claude/settings.json when that profile is selected.\n' "$PROG_NAME"
 }
 
-# Function to calculate string similarity
+# Function to calculate string similarity (returns integer 0-1000)
 calculate_similarity() {
     local str1="$1"
     local str2="$2"
 
     if [[ "$str1" == "$str2" ]]; then
-        echo "1.0"
+        echo "1000"
         return
     fi
 
     if [[ -z "$str1" && -z "$str2" ]]; then
-        echo "1.0"
+        echo "1000"
         return
     fi
 
     if [[ -z "$str1" || -z "$str2" ]]; then
-        echo "0.0"
+        echo "0"
         return
     fi
 
@@ -106,7 +104,7 @@ calculate_similarity() {
     local max_len=$((len1 > len2 ? len1 : len2))
 
     if [[ $max_len -eq 0 ]]; then
-        echo "1.0"
+        echo "1000"
         return
     fi
 
@@ -119,7 +117,7 @@ calculate_similarity() {
         fi
     done
 
-    echo "scale=10; $matches / $max_len" | bc -l
+    echo $(( matches * 1000 / max_len ))
 }
 
 # Function to detect current profile
@@ -161,7 +159,7 @@ detect_current_profile() {
         local score
         score=$(calculate_similarity "$current_settings" "$profile_json")
 
-        if (( $(echo "$score > $best_score" | bc -l) )); then
+        if (( score > best_score )); then
             best_score=$score
             best_profile="$profile_name"
         fi
@@ -420,5 +418,7 @@ main() {
     fi
 }
 
-# Run main function with all arguments
-main "$@"
+# Run main function with all arguments (skip when sourced, e.g. for testing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
