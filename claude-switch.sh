@@ -2,6 +2,8 @@
 
 # claude-switch.sh - Bash version of claude-switch utility
 # Switch between Claude Code settings profiles
+#
+# Note: this is derived from the Go version, which is the "canonical" implementation.
 
 set -euo pipefail
 
